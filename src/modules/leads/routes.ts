@@ -139,6 +139,45 @@ export async function leadsRoutes(app: FastifyInstance) {
     return lead;
   });
 
+  app.get("/:id/history", { preHandler: [app.requireAuth] }, async (request) => {
+    const { id } = leadIdParamsSchema.parse(request.params);
+    const lead = await app.prisma.lead.findUnique({
+      where: { id },
+      select: { id: true, partnerId: true }
+    });
+    if (!lead) {
+      throw new NotFoundError("Lead nao encontrado");
+    }
+    app.enforceTenant(request, lead.partnerId);
+
+    const [statusHistory, contactEvents] = await app.prisma.$transaction([
+      app.prisma.leadStatusHistory.findMany({
+        where: { leadId: id },
+        orderBy: { createdAt: "desc" },
+        include: {
+          changedByUser: {
+            select: { id: true, name: true, email: true }
+          }
+        }
+      }),
+      app.prisma.contactEvent.findMany({
+        where: { leadId: id },
+        orderBy: { createdAt: "desc" },
+        include: {
+          user: {
+            select: { id: true, name: true, email: true }
+          }
+        }
+      })
+    ]);
+
+    return {
+      lead_id: id,
+      status_history: statusHistory,
+      contact_events: contactEvents
+    };
+  });
+
   app.patch("/:id", { preHandler: [app.requireAuth] }, async (request) => {
     const { id } = leadIdParamsSchema.parse(request.params);
     const body = updateLeadBodySchema.parse(request.body);

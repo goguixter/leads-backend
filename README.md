@@ -39,6 +39,7 @@ src/
 NODE_ENV=development
 HOST=0.0.0.0
 PORT=3333
+CORS_ORIGIN="*"
 DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE?schema=public"
 JWT_ACCESS_SECRET="change-me-access"
 JWT_REFRESH_SECRET="change-me-refresh"
@@ -55,7 +56,7 @@ JWT_REFRESH_EXPIRES_IN="30d"
 
 Produção:
 1. `npm run build`
-2. `npm run start`
+2. `npx prisma migrate deploy && npm run start`
 
 ## Auth / RBAC / Tenant
 - `requireAuth`: exige JWT válido.
@@ -87,6 +88,7 @@ Regras:
 - `POST /leads`
 - `GET /leads`
 - `GET /leads/:id`
+- `GET /leads/:id/history`
 - `PATCH /leads/:id`
 - `POST /leads/:id/generate-message`
 

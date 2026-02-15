@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import fastifyCors from "@fastify/cors";
 import fastifyMultipart from "@fastify/multipart";
 import { Prisma } from "@prisma/client";
 import { ZodError } from "zod";
@@ -21,6 +22,11 @@ export function buildApp() {
   app.register(prismaPlugin);
   app.register(authPlugin);
   app.register(rbacPlugin);
+  app.register(fastifyCors, {
+    origin: env.CORS_ORIGIN === "*" ? true : env.CORS_ORIGIN.split(",").map((item) => item.trim()),
+    methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+  });
   app.register(fastifyMultipart, {
     limits: {
       fileSize: 10 * 1024 * 1024,
