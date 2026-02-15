@@ -1,0 +1,13 @@
+# Dependências
+node_modules/
+
+# Build
+dist/
+
+# Variáveis de ambiente
+.env
+.env.*
+!.env.example
+
+# Arquivos de teste
+*.xlsx

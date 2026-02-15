@@ -1,0 +1,171 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  MASTER
+  PARTNER
+}
+
+enum LeadStatus {
+  NEW
+  FIRST_CONTACT
+  RESPONDED
+  NO_RESPONSE
+  WON
+  LOST
+}
+
+enum ContactChannel {
+  WHATSAPP
+  EMAIL
+}
+
+enum ImportStatus {
+  DRAFT
+  PROCESSING
+  DONE
+  FAILED
+  CANCELED
+}
+
+model Partner {
+  id       String   @id @default(uuid()) @db.Uuid
+  name     String
+  isActive Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  users   User[]
+  leads   Lead[]
+  imports ImportBatch[]
+
+  @@map("partners")
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  partnerId    String?  @db.Uuid @map("partner_id")
+  role         UserRole
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  partner            Partner?            @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  createdLeads       Lead[]              @relation("LeadCreatedByUser")
+  leadStatusChanges  LeadStatusHistory[] @relation("LeadStatusChangedByUser")
+  contactEvents      ContactEvent[]
+  uploadedImports    ImportBatch[]       @relation("ImportUploadedByUser")
+
+  @@index([partnerId])
+  @@map("users")
+}
+
+model Lead {
+  id              String     @id @default(uuid()) @db.Uuid
+  partnerId       String     @db.Uuid @map("partner_id")
+  createdByUserId String     @db.Uuid @map("created_by_user_id")
+  studentName     String     @map("student_name")
+  email           String
+  phoneRaw        String     @map("phone_raw")
+  phoneE164       String     @map("phone_e164")
+  phoneCountry    String     @db.Char(2) @map("phone_country")
+  phoneValid      Boolean    @map("phone_valid")
+  school          String
+  city            String
+  status          LeadStatus @default(NEW)
+  firstContactedAt DateTime? @map("first_contacted_at")
+  lastContactedAt DateTime?  @map("last_contacted_at")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  partner       Partner             @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  createdByUser User                @relation("LeadCreatedByUser", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  statusHistory LeadStatusHistory[]
+  contactEvents ContactEvent[]
+  importRows    ImportRow[]
+
+  @@index([partnerId, status])
+  @@index([partnerId, createdAt(sort: Desc)])
+  @@map("leads")
+}
+
+model LeadStatusHistory {
+  id              String     @id @default(uuid()) @db.Uuid
+  leadId          String     @db.Uuid @map("lead_id")
+  oldStatus       LeadStatus @map("old_status")
+  newStatus       LeadStatus @map("new_status")
+  changedByUserId String     @db.Uuid @map("changed_by_user_id")
+  note            String?
+  createdAt       DateTime   @default(now()) @map("created_at")
+
+  lead          Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  changedByUser User @relation("LeadStatusChangedByUser", fields: [changedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([leadId])
+  @@index([changedByUserId])
+  @@map("lead_status_history")
+}
+
+model ContactEvent {
+  id                     String         @id @default(uuid()) @db.Uuid
+  leadId                 String         @db.Uuid @map("lead_id")
+  userId                 String         @db.Uuid @map("user_id")
+  channel                ContactChannel
+  messageTemplateVersion String         @map("message_template_version")
+  messageRendered        String         @map("message_rendered")
+  toAddress              String         @map("to_address")
+  success                Boolean
+  errorReason            String?        @map("error_reason")
+  createdAt              DateTime       @default(now()) @map("created_at")
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([leadId])
+  @@index([userId])
+  @@map("contact_events")
+}
+
+model ImportBatch {
+  id               String       @id @default(uuid()) @db.Uuid
+  partnerId        String       @db.Uuid @map("partner_id")
+  uploadedByUserId String       @db.Uuid @map("uploaded_by_user_id")
+  filename         String
+  totalRows        Int          @default(0) @map("total_rows")
+  successRows      Int          @default(0) @map("success_rows")
+  errorRows        Int          @default(0) @map("error_rows")
+  status           ImportStatus @default(DRAFT)
+  createdAt        DateTime     @default(now()) @map("created_at")
+
+  partner        Partner     @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  uploadedByUser User        @relation("ImportUploadedByUser", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+  rows           ImportRow[]
+
+  @@index([partnerId])
+  @@index([uploadedByUserId])
+  @@map("imports")
+}
+
+model ImportRow {
+  id                    String   @id @default(uuid()) @db.Uuid
+  importId              String   @db.Uuid @map("import_id")
+  rowNumber             Int      @map("row_number")
+  rawData               Json     @db.JsonB @map("raw_data")
+  normalizedPhoneE164   String?  @map("normalized_phone_e164")
+  success               Boolean
+  errorMessage          String?  @map("error_message")
+  leadId                String?  @db.Uuid @map("lead_id")
+
+  importBatch ImportBatch @relation(fields: [importId], references: [id], onDelete: Cascade)
+  lead        Lead?       @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@index([importId])
+  @@index([leadId])
+  @@map("import_rows")
+}
