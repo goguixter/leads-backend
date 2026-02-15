@@ -5,7 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "npx prisma generate && tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write .",
@@ -28,6 +28,7 @@
     "jsonwebtoken": "^9.0.3",
     "libphonenumber-js": "^1.12.36",
     "pg": "^8.18.0",
+    "prisma": "^7.4.0",
     "xlsx": "^0.18.5",
     "zod": "^4.3.6"
   },
@@ -39,7 +40,6 @@
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.8.1",
-    "prisma": "^7.4.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
