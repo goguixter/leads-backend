@@ -10,6 +10,10 @@ const importIdParamsSchema = z.object({
   id: z.string().uuid()
 });
 
+const confirmImportBodySchema = z.object({
+  ignore_duplicates: z.boolean().default(true)
+});
+
 const previewRowSchema = z.object({
   student_name: z.string().min(2),
   email: z.string().email(),
@@ -25,6 +29,44 @@ type RawImportRow = {
   school: string;
   city: string;
 };
+
+async function findLeadDuplicate(
+  app: FastifyInstance,
+  partnerId: string,
+  row: RawImportRow,
+  normalizedPhoneE164: string
+) {
+  const duplicate = await app.prisma.lead.findFirst({
+    where: {
+      partnerId,
+      OR: [
+        { email: { equals: row.email, mode: "insensitive" } },
+        { phoneE164: normalizedPhoneE164 },
+        { studentName: { equals: row.student_name, mode: "insensitive" } }
+      ]
+    },
+    select: {
+      id: true,
+      studentName: true,
+      email: true,
+      phoneE164: true
+    }
+  });
+
+  if (!duplicate) {
+    return null;
+  }
+
+  const reasons: Array<"phone" | "email" | "name"> = [];
+  if (duplicate.phoneE164 === normalizedPhoneE164) reasons.push("phone");
+  if (duplicate.email.toLowerCase() === row.email.toLowerCase()) reasons.push("email");
+  if (duplicate.studentName.toLowerCase() === row.student_name.toLowerCase()) reasons.push("name");
+
+  return {
+    duplicate,
+    reasons
+  };
+}
 
 function pickString(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -90,7 +132,16 @@ export async function importsRoutes(app: FastifyInstance) {
 
     const errorsSample: Array<{ row_number: number; error: string }> = [];
     let validRows = 0;
-    const rowsToInsert = parsedRows.map((row, index) => {
+    let duplicateRows = 0;
+    const rowsToInsert: Array<{
+      rowNumber: number;
+      rawData: RawImportRow;
+      normalizedPhoneE164: string | null;
+      success: boolean;
+      errorMessage: string | null;
+    }> = [];
+
+    for (const [index, row] of parsedRows.entries()) {
       const rowNumber = index + 2;
       let success = true;
       let errorMessage: string | null = null;
@@ -106,6 +157,19 @@ export async function importsRoutes(app: FastifyInstance) {
       } else {
         try {
           normalizedPhoneE164 = normalizeFromInternational(row.phone).phoneE164;
+          const duplicate = await findLeadDuplicate(app, partnerId, row, normalizedPhoneE164);
+          if (duplicate) {
+            success = false;
+            duplicateRows += 1;
+            const reasonLabel = duplicate.reasons
+              .map((reason) => {
+                if (reason === "phone") return "telefone";
+                if (reason === "email") return "email";
+                return "nome";
+              })
+              .join(", ");
+            errorMessage = `DUPLICATE_LEAD: lead ja existe (${reasonLabel})`;
+          }
         } catch {
           success = false;
           errorMessage = "Telefone invalido";
@@ -118,14 +182,14 @@ export async function importsRoutes(app: FastifyInstance) {
         errorsSample.push({ row_number: rowNumber, error: errorMessage });
       }
 
-      return {
+      rowsToInsert.push({
         rowNumber,
         rawData: row,
         normalizedPhoneE164,
         success,
         errorMessage
-      };
-    });
+      });
+    }
 
     const totalRows = rowsToInsert.length;
     const invalidRows = totalRows - validRows;
@@ -160,12 +224,14 @@ export async function importsRoutes(app: FastifyInstance) {
       total_rows: totalRows,
       valid_rows: validRows,
       invalid_rows: invalidRows,
+      duplicate_rows: duplicateRows,
       preview_sample: parsedRows,
       errors_sample: errorsSample
     });
   });
 
   app.post("/:id/confirm", { preHandler: [app.requireAuth] }, async (request) => {
+    const body = confirmImportBodySchema.parse(request.body ?? {});
     const { id } = importIdParamsSchema.parse(request.params);
     const importBatch = await app.prisma.importBatch.findUnique({
       where: { id },
@@ -187,6 +253,15 @@ export async function importsRoutes(app: FastifyInstance) {
       where: { id: importBatch.id },
       data: { status: "PROCESSING" }
     });
+
+    const hasDuplicateRows = importBatch.rows.some(
+      (row) => row.errorMessage?.startsWith("DUPLICATE_LEAD:") ?? false
+    );
+    if (hasDuplicateRows && !body.ignore_duplicates) {
+      throw new BadRequestError(
+        "Existem leads duplicados no preview. Marque para ignorar duplicados antes de confirmar."
+      );
+    }
 
     let createdCount = 0;
     let failedCount = 0;

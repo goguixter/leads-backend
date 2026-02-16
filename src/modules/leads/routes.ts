@@ -1,7 +1,7 @@
 import { LeadStatus } from "@prisma/client";
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { BadRequestError, ForbiddenError, NotFoundError } from "../../shared/errors";
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../../shared/errors";
 import { env } from "../../shared/env";
 import { normalizeFromCountryAndNational } from "../../shared/phone";
 
@@ -11,6 +11,7 @@ const leadIdParamsSchema = z.object({
 
 const createLeadBodySchema = z.object({
   partner_id: z.string().uuid().optional(),
+  ignore_duplicates: z.boolean().optional(),
   student_name: z.string().min(2).max(160),
   email: z.string().email(),
   phone_country: z.string().length(2),
@@ -75,6 +76,47 @@ function buildLeadWhere(
   return where;
 }
 
+async function findLeadDuplicate(
+  app: FastifyInstance,
+  partnerId: string,
+  values: {
+    studentName: string;
+    email: string;
+    phoneE164: string;
+  }
+) {
+  const duplicate = await app.prisma.lead.findFirst({
+    where: {
+      partnerId,
+      OR: [
+        { email: { equals: values.email, mode: "insensitive" } },
+        { phoneE164: values.phoneE164 },
+        { studentName: { equals: values.studentName, mode: "insensitive" } }
+      ]
+    },
+    select: {
+      id: true,
+      studentName: true,
+      email: true,
+      phoneE164: true
+    }
+  });
+
+  if (!duplicate) {
+    return null;
+  }
+
+  const reasons: Array<"phone" | "email" | "name"> = [];
+  if (duplicate.phoneE164 === values.phoneE164) reasons.push("phone");
+  if (duplicate.email.toLowerCase() === values.email.toLowerCase()) reasons.push("email");
+  if (duplicate.studentName.toLowerCase() === values.studentName.toLowerCase()) reasons.push("name");
+
+  return {
+    duplicate,
+    reasons
+  };
+}
+
 export async function leadsRoutes(app: FastifyInstance) {
   app.post("/", { preHandler: [app.requireAuth] }, async (request, reply) => {
     const body = createLeadBodySchema.parse(request.body);
@@ -85,6 +127,17 @@ export async function leadsRoutes(app: FastifyInstance) {
     }
 
     const phone = normalizeFromCountryAndNational(body.phone_country, body.phone_national);
+    const duplicateData = await findLeadDuplicate(app, partnerId, {
+      studentName: body.student_name,
+      email: body.email,
+      phoneE164: phone.phoneE164
+    });
+    if (duplicateData && !body.ignore_duplicates) {
+      throw new ConflictError("Lead ja existe para este partner", {
+        duplicate_lead_id: duplicateData.duplicate.id,
+        duplicate_reasons: duplicateData.reasons
+      });
+    }
 
     const lead = await app.prisma.lead.create({
       data: {
