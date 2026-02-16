@@ -160,7 +160,7 @@ export async function importsRoutes(app: FastifyInstance) {
       total_rows: totalRows,
       valid_rows: validRows,
       invalid_rows: invalidRows,
-      preview_sample: parsedRows.slice(0, 10),
+      preview_sample: parsedRows,
       errors_sample: errorsSample
     });
   });
