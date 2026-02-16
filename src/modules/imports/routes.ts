@@ -30,6 +30,8 @@ type RawImportRow = {
   city: string;
 };
 
+type DuplicateReason = "phone" | "email" | "name";
+
 async function findLeadDuplicate(
   app: FastifyInstance,
   partnerId: string,
@@ -57,7 +59,7 @@ async function findLeadDuplicate(
     return null;
   }
 
-  const reasons: Array<"phone" | "email" | "name"> = [];
+  const reasons: DuplicateReason[] = [];
   if (duplicate.phoneE164 === normalizedPhoneE164) reasons.push("phone");
   if (duplicate.email.toLowerCase() === row.email.toLowerCase()) reasons.push("email");
   if (duplicate.studentName.toLowerCase() === row.student_name.toLowerCase()) reasons.push("name");
@@ -131,6 +133,14 @@ export async function importsRoutes(app: FastifyInstance) {
     }));
 
     const errorsSample: Array<{ row_number: number; error: string }> = [];
+    const previewRows: Array<
+      RawImportRow & {
+        row_number: number;
+        is_duplicate: boolean;
+        duplicate_fields: DuplicateReason[];
+        error: string | null;
+      }
+    > = [];
     let validRows = 0;
     let duplicateRows = 0;
     const rowsToInsert: Array<{
@@ -146,6 +156,7 @@ export async function importsRoutes(app: FastifyInstance) {
       let success = true;
       let errorMessage: string | null = null;
       let normalizedPhoneE164: string | null = null;
+      let duplicateFields: DuplicateReason[] = [];
 
       const parsed = previewRowSchema.safeParse(row);
       if (!parsed.success) {
@@ -161,6 +172,7 @@ export async function importsRoutes(app: FastifyInstance) {
           if (duplicate) {
             success = false;
             duplicateRows += 1;
+            duplicateFields = duplicate.reasons;
             const reasonLabel = duplicate.reasons
               .map((reason) => {
                 if (reason === "phone") return "telefone";
@@ -188,6 +200,14 @@ export async function importsRoutes(app: FastifyInstance) {
         normalizedPhoneE164,
         success,
         errorMessage
+      });
+
+      previewRows.push({
+        row_number: rowNumber,
+        ...row,
+        is_duplicate: duplicateFields.length > 0,
+        duplicate_fields: duplicateFields,
+        error: errorMessage
       });
     }
 
@@ -226,6 +246,7 @@ export async function importsRoutes(app: FastifyInstance) {
       invalid_rows: invalidRows,
       duplicate_rows: duplicateRows,
       preview_sample: parsedRows,
+      preview_rows: previewRows,
       errors_sample: errorsSample
     });
   });
