@@ -91,6 +91,7 @@ Regras:
 - `GET /leads/:id`
 - `GET /leads/:id/history`
 - `PATCH /leads/:id`
+- `DELETE /leads/:id` (MASTER)
 - `POST /leads/:id/generate-message`
 
 ### Imports

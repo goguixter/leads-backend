@@ -297,6 +297,22 @@ export async function leadsRoutes(app: FastifyInstance) {
     return updated;
   });
 
+  app.delete("/:id", { preHandler: [app.requireAuth] }, async (request, reply) => {
+    const { id } = leadIdParamsSchema.parse(request.params);
+    const lead = await app.prisma.lead.findUnique({ where: { id } });
+    if (!lead) {
+      throw new NotFoundError("Lead nao encontrado");
+    }
+    app.enforceTenant(request, lead.partnerId);
+
+    if (request.user.role !== "MASTER") {
+      throw new ForbiddenError("Apenas MASTER pode excluir lead");
+    }
+
+    await app.prisma.lead.delete({ where: { id } });
+    return reply.status(204).send();
+  });
+
   app.post("/:id/generate-message", { preHandler: [app.requireAuth] }, async (request, reply) => {
     const { id } = leadIdParamsSchema.parse(request.params);
     const lead = await app.prisma.lead.findUnique({ where: { id } });
