@@ -1,7 +1,7 @@
 import { LeadStatus } from "@prisma/client";
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { NotFoundError } from "../../shared/errors";
+import { ForbiddenError, NotFoundError } from "../../shared/errors";
 import { normalizeFromCountryAndNational } from "../../shared/phone";
 
 const leadIdParamsSchema = z.object({
@@ -187,6 +187,9 @@ export async function leadsRoutes(app: FastifyInstance) {
       throw new NotFoundError("Lead nao encontrado");
     }
     app.enforceTenant(request, lead.partnerId);
+    if (body.status && request.user.role !== "MASTER") {
+      throw new ForbiddenError("Apenas MASTER pode alterar status do lead");
+    }
 
     const nextPhoneCountry = body.phone_country ?? lead.phoneCountry;
     const nextPhoneNational = body.phone_national ?? lead.phoneRaw;
@@ -301,7 +304,7 @@ export async function leadsRoutes(app: FastifyInstance) {
         patch.firstContactedAt = now;
       }
 
-      if (lead.status === "NEW") {
+      if (lead.status === "NEW" && request.user.role === "MASTER") {
         patch.status = "FIRST_CONTACT";
       }
 
@@ -311,6 +314,10 @@ export async function leadsRoutes(app: FastifyInstance) {
       });
 
       if (lead.status === "NEW") {
+        if (request.user.role !== "MASTER") {
+          return result;
+        }
+
         await tx.leadStatusHistory.create({
           data: {
             leadId: lead.id,
