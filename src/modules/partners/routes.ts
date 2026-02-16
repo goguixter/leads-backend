@@ -20,6 +20,35 @@ const partnerParamsSchema = z.object({
 });
 
 export async function partnersRoutes(app: FastifyInstance) {
+  app.get("/me", { preHandler: [app.requireAuth] }, async (request) => {
+    if (request.user.role === "MASTER") {
+      return {
+        id: null,
+        name: "MASTER",
+        isActive: true
+      };
+    }
+
+    if (!request.user.partnerId) {
+      throw new NotFoundError("Partner do usuario nao encontrado");
+    }
+
+    const partner = await app.prisma.partner.findUnique({
+      where: { id: request.user.partnerId },
+      select: {
+        id: true,
+        name: true,
+        isActive: true
+      }
+    });
+
+    if (!partner) {
+      throw new NotFoundError("Partner nao encontrado");
+    }
+
+    return partner;
+  });
+
   app.post(
     "/",
     { preHandler: [app.requireAuth, app.requireMaster] },
