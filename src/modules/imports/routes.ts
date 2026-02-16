@@ -3,6 +3,7 @@ import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import * as XLSX from "xlsx";
 import { BadRequestError, NotFoundError } from "../../shared/errors";
+import { env } from "../../shared/env";
 import { normalizeFromInternational } from "../../shared/phone";
 
 const importIdParamsSchema = z.object({
@@ -50,9 +51,11 @@ export async function importsRoutes(app: FastifyInstance) {
       throw new BadRequestError("Formato invalido. Use .xls ou .xlsx");
     }
 
-    const partnerId = app.enforceTenant(request, getFieldValue(file.fields, "partner_id"));
+    const requestedPartnerId =
+      request.user.role === "MASTER" ? env.DEFAULT_PARTNER_ID : getFieldValue(file.fields, "partner_id");
+    const partnerId = app.enforceTenant(request, requestedPartnerId);
     if (!partnerId) {
-      throw new BadRequestError("partner_id e obrigatorio para importacao");
+      throw new BadRequestError("DEFAULT_PARTNER_ID obrigatorio para importar como MASTER");
     }
 
     const buffer = await file.toBuffer();

@@ -1,7 +1,8 @@
 import { LeadStatus } from "@prisma/client";
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { ForbiddenError, NotFoundError } from "../../shared/errors";
+import { BadRequestError, ForbiddenError, NotFoundError } from "../../shared/errors";
+import { env } from "../../shared/env";
 import { normalizeFromCountryAndNational } from "../../shared/phone";
 
 const leadIdParamsSchema = z.object({
@@ -77,9 +78,10 @@ function buildLeadWhere(
 export async function leadsRoutes(app: FastifyInstance) {
   app.post("/", { preHandler: [app.requireAuth] }, async (request, reply) => {
     const body = createLeadBodySchema.parse(request.body);
-    const partnerId = app.enforceTenant(request, body.partner_id);
+    const requestedPartnerId = request.user.role === "MASTER" ? env.DEFAULT_PARTNER_ID : body.partner_id;
+    const partnerId = app.enforceTenant(request, requestedPartnerId);
     if (!partnerId) {
-      throw new NotFoundError("partner_id e obrigatorio para criar lead");
+      throw new BadRequestError("DEFAULT_PARTNER_ID obrigatorio para criar lead como MASTER");
     }
 
     const phone = normalizeFromCountryAndNational(body.phone_country, body.phone_national);
