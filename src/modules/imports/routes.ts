@@ -87,12 +87,12 @@ export async function importsRoutes(app: FastifyInstance) {
   app.post("/xls/preview", { preHandler: [app.requireAuth] }, async (request, reply) => {
     const file = await request.file();
     if (!file) {
-      throw new BadRequestError("Arquivo xls/xlsx e obrigatorio");
+      throw new BadRequestError("Arquivo csv/xls/xlsx e obrigatorio");
     }
 
     const filename = file.filename.toLowerCase();
-    if (!filename.endsWith(".xls") && !filename.endsWith(".xlsx")) {
-      throw new BadRequestError("Formato invalido. Use .xls ou .xlsx");
+    if (!filename.endsWith(".csv") && !filename.endsWith(".xls") && !filename.endsWith(".xlsx")) {
+      throw new BadRequestError("Formato invalido. Use .csv, .xls ou .xlsx");
     }
 
     const requestedPartnerId =

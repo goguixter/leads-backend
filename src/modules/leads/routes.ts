@@ -85,6 +85,13 @@ function buildLeadWhere(
   return where;
 }
 
+function csvEscape(value: string) {
+  if (/[",\n\r]/.test(value)) {
+    return `"${value.replace(/"/g, "\"\"")}"`;
+  }
+  return value;
+}
+
 async function findLeadDuplicate(
   app: FastifyInstance,
   partnerId: string,
@@ -232,6 +239,48 @@ export async function leadsRoutes(app: FastifyInstance) {
     reply.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     reply.header("Content-Disposition", `attachment; filename="leads-export-${timestamp}.xlsx"`);
     return reply.send(buffer);
+  });
+
+  app.get("/export/csv", { preHandler: [app.requireAuth] }, async (request, reply) => {
+    const query = exportLeadsQuerySchema.parse(request.query);
+    const partnerId = app.enforceTenant(request, query.partner_id);
+    const where = buildLeadWhere(partnerId, {
+      ...query,
+      page: 1,
+      page_size: 1
+    });
+
+    const items = await app.prisma.lead.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      select: {
+        studentName: true,
+        email: true,
+        phoneE164: true,
+        school: true,
+        city: true
+      }
+    });
+
+    const header = ["student_name", "email", "phone", "school", "city"];
+    const lines = [
+      header.join(","),
+      ...items.map((lead) =>
+        [
+          csvEscape(lead.studentName),
+          csvEscape(lead.email),
+          csvEscape(lead.phoneE164),
+          csvEscape(lead.school),
+          csvEscape(lead.city)
+        ].join(",")
+      )
+    ];
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const csv = `\uFEFF${lines.join("\n")}`;
+    reply.header("Content-Type", "text/csv; charset=utf-8");
+    reply.header("Content-Disposition", `attachment; filename="leads-export-${timestamp}.csv"`);
+    return reply.send(csv);
   });
 
   app.get("/:id", { preHandler: [app.requireAuth] }, async (request) => {
