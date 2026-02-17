@@ -1,6 +1,7 @@
 import { LeadStatus } from "@prisma/client";
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
+import * as XLSX from "xlsx";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../../shared/errors";
 import { env } from "../../shared/env";
 import { normalizeFromCountryAndNational } from "../../shared/phone";
@@ -28,6 +29,14 @@ const listLeadsQuerySchema = z.object({
   search: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),
   page_size: z.coerce.number().int().min(1).max(100).default(20)
+});
+
+const exportLeadsQuerySchema = z.object({
+  partner_id: z.string().uuid().optional(),
+  status: z.enum(["NEW", "FIRST_CONTACT", "RESPONDED", "NO_RESPONSE", "WON", "LOST"]).optional(),
+  school: z.string().optional(),
+  city: z.string().optional(),
+  search: z.string().optional()
 });
 
 const updateLeadBodySchema = z
@@ -181,6 +190,48 @@ export async function leadsRoutes(app: FastifyInstance) {
         total
       }
     };
+  });
+
+  app.get("/export/xlsx", { preHandler: [app.requireAuth] }, async (request, reply) => {
+    const query = exportLeadsQuerySchema.parse(request.query);
+    const partnerId = app.enforceTenant(request, query.partner_id);
+    const where = buildLeadWhere(partnerId, {
+      ...query,
+      page: 1,
+      page_size: 1
+    });
+
+    const items = await app.prisma.lead.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      select: {
+        studentName: true,
+        email: true,
+        phoneE164: true,
+        school: true,
+        city: true
+      }
+    });
+
+    const rows = items.map((lead) => ({
+      student_name: lead.studentName,
+      email: lead.email,
+      phone: lead.phoneE164,
+      school: lead.school,
+      city: lead.city
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(rows, {
+      header: ["student_name", "email", "phone", "school", "city"]
+    });
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Leads");
+    const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    reply.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    reply.header("Content-Disposition", `attachment; filename="leads-export-${timestamp}.xlsx"`);
+    return reply.send(buffer);
   });
 
   app.get("/:id", { preHandler: [app.requireAuth] }, async (request) => {
